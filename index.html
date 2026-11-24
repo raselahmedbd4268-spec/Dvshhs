@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cricket Recorder + Gofile</title>
+<style>
+*{box-sizing:border-box;font-family:sans-serif}
+body{background:#0a0f1e;color:white;margin:0;padding:15px;text-align:center}
+h1{color:#00ff88;font-size:22px}
+.card{background:#151d33;padding:18px;border-radius:16px;max-width:480px;margin:10px auto;border:1px solid #2a3a5f}
+select,button{width:100%;padding:13px;margin:8px 0;border-radius:10px;border:none;font-size:16px;font-weight:bold}
+select{background:#222f4d;color:white}
+#startBtn{background:#00ff88;color:black}
+#pauseBtn{background:#ffcc00;color:black;display:none}
+#stopBtn{background:#ff3b30;color:white;display:none}
+#gofileBtn{background:#a855f7;color:white;display:none}
+#status{font-size:17px;margin:10px 0;color:#ffcc00;word-break:break-all}
+#size{font-size:14px;color:#aaa}
+#barWrap{background:#222f4d;height:12px;border-radius:10px;overflow:hidden;margin:10px 0}
+#bar{background:#00ff88;height:100%;width:0%}
+video{width:100%;border-radius:12px;background:black;margin-top:10px;display:none}
+input{width:100%;padding:12px;border-radius:10px;border:none;background:#222f4d;color:white;margin:5px 0}
+a{color:#00ff88}
+</style>
+</head>
+<body>
+<h1>🏏 Cricket Recorder + Gofile</h1>
+<p>Record করো -> Gofile লিংক নাও</p>
+<div class="card">
+  <label>Quality:</label>
+  <select id="quality">
+    <option value="720">720p - কম MB (2GB তে ~4 ঘন্টা)</option>
+    <option value="1080" selected>1080p - ভালো Quality</option>
+  </select>
+  <div id="status">Ready ✅</div>
+  <div id="size">0 MB / 2048 MB</div>
+  <div id="barWrap"><div id="bar"></div></div>
+  <button id="startBtn" onclick="startRec()">🔴 RECORD শুরু</button>
+  <button id="pauseBtn" onclick="togglePause()">⏸️ Pause</button>
+  <button id="stopBtn" onclick="stopRec()">⏹️ Stop</button>
+  <button id="gofileBtn" onclick="uploadToGofile()">☁️ Gofile এ Upload করো + লিংক নাও</button>
+  <video id="preview" autoplay muted playsinline></video>
+  <p id="linkBox" style="display:none"></p>
+  <small>Tip: Record এর সময় Screen Select আসলে Live চলা Tab টা নিবা + Share Audio ON রাখবা।</small>
+</div>
+
+<script>
+let recorder, stream, chunks=[], totalSize=0, paused=false, startTime, timerInt;
+const MAX = 2*1024*1024*1024;
+
+async function startRec(){
+  try{
+    stream = await navigator.mediaDevices.getDisplayMedia({video:true, audio:true});
+    try{ let mic = await navigator.mediaDevices.getUserMedia({audio:true});
+      stream = new MediaStream([...stream.getVideoTracks(), ...stream.getAudioTracks(), ...mic.getAudioTracks()]);
+    }catch(e){}
+    document.getElementById('preview').style.display='block';
+    document.getElementById('preview').srcObject = stream;
+    let q = document.getElementById('quality').value;
+    let bitrate = q=="720" ? 2500000 : 5000000;
+    recorder = new MediaRecorder(stream, {mimeType:'video/webm;codecs=vp9,opus', videoBitsPerSecond: bitrate});
+    chunks=[]; totalSize=0;
+    recorder.ondataavailable = e => {
+      if(e.data.size>0){ chunks.push(e.data); totalSize+=e.data.size; updateUI();
+        if(totalSize>=MAX){ alert("2GB হয়ে গেছে!"); stopRec(); }
+      }
+    };
+    recorder.onstop = ()=>{
+      document.getElementById('status').innerText="রেকর্ড শেষ! এখন Gofile বাটনে চাপ দাও 👇";
+      document.getElementById('gofileBtn').style.display='block';
+      document.getElementById('startBtn').style.display='block';
+      document.getElementById('pauseBtn').style.display='none';
+      document.getElementById('stopBtn').style.display='none';
+      stream.getTracks().forEach(t=>t.stop());
+      clearInterval(timerInt);
+    };
+    recorder.start(1000);
+    startTime=Date.now();
+    timerInt=setInterval(()=>{ let sec=Math.floor((Date.now()-startTime)/1000); document.getElementById('status').innerText=`🔴 RECORD চলতেছে... ${Math.floor(sec/3600)}:${Math.floor((sec%3600)/60)}:${sec%60}`; },1000);
+    document.getElementById('startBtn').style.display='none';
+    document.getElementById('pauseBtn').style.display='block';
+    document.getElementById('stopBtn').style.display='block';
+    document.getElementById('gofileBtn').style.display='none';
+    stream.getVideoTracks()[0].onended=()=>{ if(recorder.state!='inactive') stopRec(); };
+  }catch(err){ alert("Permission দাও নাই: "+err.message); }
+}
+function togglePause(){
+  if(!recorder) return;
+  if(paused){ recorder.resume(); paused=false; document.getElementById('pauseBtn').innerText="⏸️ Pause"; }
+  else{ recorder.pause(); paused=true; document.getElementById('pauseBtn').innerText="▶️ Resume"; document.getElementById('status').innerText="⏸️ Pause আছে"; }
+}
+function stopRec(){ if(recorder && recorder.state!='inactive') recorder.stop(); }
+function updateUI(){
+  let mb=(totalSize/(1024*1024)).toFixed(1);
+  document.getElementById('size').innerText=mb+" MB / 2048 MB";
+  document.getElementById('bar').style.width=(totalSize/MAX*100)+"%";
+}
+
+async function uploadToGofile(){
+  if(chunks.length==0){ alert("আগে রেকর্ড করো!"); return; }
+  document.getElementById('status').innerText="⏳ Gofile সার্ভার খুঁজতেছি...";
+  document.getElementById('gofileBtn').innerText="⏳ Upload হইতেছে... দাঁড়াও, কাটবা না!";
+  document.getElementById('gofileBtn').disabled=true;
+  try{
+    let blob = new Blob(chunks, {type:'video/webm'});
+    // ১. ফোনেও সেভ হবে
+    let url = URL.createObjectURL(blob);
+    let a = document.createElement('a'); a.href=url; a.download='Cricket-Match.webm'; a.click();
+
+    // ২. Gofile Server নেওয়া - খালি HTML দিয়াই
+    let sRes = await fetch('https://api.gofile.io/getServer');
+    let sData = await sRes.json();
+    let server = sData.data.server;
+
+    let form = new FormData();
+    form.append('file', blob, 'Cricket-Match-'+Date.now()+'.webm');
+
+    let upRes = await fetch(`https://${server}.gofile.io/uploadFile`, {method:'POST', body: form});
+    let upData = await upRes.json();
+    console.log(upData);
+
+    if(upData.status==='ok'){
+      let link = upData.data.downloadPage;
+      document.getElementById('status').innerHTML=`✅ হয়ে গেছে ভাই!`;
+      let box = document.getElementById('linkBox');
+      box.style.display='block';
+      box.innerHTML=`<b>Gofile লিংক:</b><br><a href="${link}" target="_blank">${link}</a><br><br><button onclick="copyLink('${link}')" style="background:#00ff88;color:black">📋 লিংক Copy করো</button>`;
+      alert("Gofile লিংক পাইছোস!\n"+link);
+    } else {
+      document.getElementById('status').innerText="Gofile Fail করছে, আবার চেষ্টা করো। ফোনে কিন্তু Download হইছে।";
+    }
+  }catch(e){
+    document.getElementById('status').innerText="Error: "+e.message+" - ফোনে Download হইছে, Gofile আবার চেষ্টা করো।";
+  }
+  document.getElementById('gofileBtn').innerText="☁️ Gofile এ Upload করো + লিংক নাও";
+  document.getElementById('gofileBtn').disabled=false;
+}
+function copyLink(link){
+  navigator.clipboard.writeText(link).then(()=>alert("লিংক Copy হইছে!"));
+}
+</script>
+</body>
+</html>
